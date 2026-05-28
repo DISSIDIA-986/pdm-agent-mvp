@@ -186,9 +186,23 @@ Two things the numbers honestly say:
 
 Position: this is a working research artifact, not "calibration solved". The methodology (multinomial T-scaling, LOO-by-file, fold-level ECE + standard multiclass Brier) is the right shape for scaling up to a larger CWRU pool or a real customer dataset. Implementation is in `src/pdm_agent/calibration.py`; run via `python -m eval.run_calibration` to regenerate.
 
-### Failure mode: 0.007" ball defects
+### Failure mode: ball-defect detection (0/30 across three defect sizes)
 
-CWRU's 0.007-inch ball-defect signatures concentrate energy in FTF-modulated sidebands with a weak harmonic fundamental — classical envelope-spectrum methods systematically under-detect them. Order tracking, cepstrum, or a supervised model with more labelled samples would lift this number. Out of scope for this MVP; documented in `eval/error_analysis.md`.
+CWRU ball signatures concentrate energy in FTF-modulated sidebands with a weak harmonic fundamental; on top of that, ball impacts are slip-sensitive and not strictly periodic. Classical envelope-spectrum methods systematically under-detect them on this rig.
+
+We tried lifting this in **Roadmap §3** by extending the envelope family: order tracking, envelope cepstrum, more harmonics + sidebands, squared envelope spectrum, and spectral-kurtosis-driven band selection. The full experiment is at [`scripts/ball_detection_experiment.py`](scripts/ball_detection_experiment.py); the negative-result write-up is at [`docs/research/ball-detection.md`](docs/research/ball-detection.md). Summary:
+
+```
+method                              0.007"   0.014"   0.021"   total
+A. baseline (diagnose v2)            0/10     0/10     0/10    0/30
+B. more harmonics + sidebands        0/10     0/10     0/10    0/30
+C. SES at fixed 2-4.5 kHz band       0/10     0/10     0/10    0/30
+D. SK-selected band + SES            1/10     0/10     0/10    1/30
+```
+
+The operators (`pdm_agent.order_tracking`) are implemented correctly and tested at 7/7; they're preserved as a research artifact and as the right shape to plug into the next-stage methods (AR-residual + SES, cyclic spectral coherence, supervised classification). The negative-result write-up cites the literature (Smith & Randall 2015, Polito 2021, IEEE Access 2023) that documents this exact phenomenon on CWRU.
+
+Why ship the negative result instead of tuning until something ticks up: it's the more useful portfolio signal. Real industrial bearing diagnostics deal with methods that work in some operating regimes and not others; saying so out loud is part of the engineering.
 
 ### Scope statement (read this before reusing)
 
