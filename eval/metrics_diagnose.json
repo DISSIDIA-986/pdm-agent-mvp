@@ -1,0 +1,51 @@
+{
+  "method": "diagnose",
+  "n_samples": 43,
+  "overall_accuracy": 0.7674,
+  "per_class": {
+    "normal": {
+      "n": 13,
+      "correct": 13,
+      "accuracy": 1.0
+    },
+    "inner_race": {
+      "n": 10,
+      "correct": 10,
+      "accuracy": 1.0
+    },
+    "outer_race": {
+      "n": 10,
+      "correct": 10,
+      "accuracy": 1.0
+    },
+    "ball": {
+      "n": 10,
+      "correct": 0,
+      "accuracy": 0.0
+    }
+  },
+  "binary_fault_detection": {
+    "true_positive": 23,
+    "false_positive": 0,
+    "true_negative": 13,
+    "false_negative": 7,
+    "precision": 1.0,
+    "recall": 0.7667,
+    "f1": 0.8679
+  },
+  "confusion": {
+    "normal": {
+      "normal": 13
+    },
+    "inner_race": {
+      "inner_race": 10
+    },
+    "ball": {
+      "normal": 7,
+      "outer_race": 3
+    },
+    "outer_race": {
+      "outer_race": 10
+    }
+  }
+}

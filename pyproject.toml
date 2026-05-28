@@ -1,0 +1,52 @@
+[project]
+name = "pdm-agent-mvp"
+version = "0.1.0"
+description = "Predictive Maintenance Agent MVP — vibration-only closed loop with human-in-the-loop work orders. Companion to EMS-demo microgrid project."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "yupoca24" }]
+
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "pandas>=2.1",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "httpx>=0.27",
+    "pydantic>=2.6",
+    "asyncua>=1.1",
+    "sqlalchemy>=2.0",
+    "aiosqlite>=0.20",
+    "langgraph>=0.2",
+    "langchain-core>=0.3",
+    "anthropic>=0.40",
+    "rich>=13.7",
+    "typer>=0.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "ruff>=0.6",
+    "scikit-learn>=1.4",  # for baseline rule + metrics
+    "matplotlib>=3.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pdm_agent"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra -q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

@@ -1,0 +1,7 @@
+actual \ prednormal       inner_race   outer_race   ball         fault        
+------------------------------------------------------------------------------
+normal       13           0            0            0            0            
+inner_race   0            10           0            0            0            
+outer_race   0            0            10           0            0            
+ball         7            0            3            0            0            
+fault        0            0            0            0            0            
