@@ -3,7 +3,7 @@
 > **Predictive-maintenance agent runtime, not another AI copilot.**
 > Vibration-only closed loop on a simulated microgrid BESS asset, ingesting OPC UA, classifying bearing faults with physics-derived diagnostics, drafting work orders, and pausing for human approval — with a SQLite-persisted audit trail.
 
-Companion to [EMS-demo](https://github.com/niuyp/EMS-demo) (microgrid energy-management dashboard with BESS / FFR / arbitrage). This repo focuses on the *agent runtime* layer that sits next to such a system: deterministic diagnostics, LangGraph workflow with `interrupt()`-based human approval, HTTP-sidecar architecture designed to plug into an MCP server wrapper (Roadmap §5) without re-architecting.
+Companion to [EMS-demo](https://github.com/DISSIDIA-986/EMS-demo) — a microgrid energy-management dashboard prototype I built earlier covering BESS / FFR / arbitrage / carbon accounting (currently a private repo; ping me for a walkthrough). This repo focuses on the *agent runtime* layer that would sit next to such a system: deterministic diagnostics, LangGraph workflow with `interrupt()`-based human approval, HTTP-sidecar architecture designed to plug into an MCP server wrapper (Roadmap §5) without re-architecting.
 
 ## At a glance
 
