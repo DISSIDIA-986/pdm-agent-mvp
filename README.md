@@ -3,7 +3,7 @@
 > **Predictive-maintenance agent runtime, not another AI copilot.**
 > Vibration-only closed loop on a simulated microgrid BESS asset, ingesting OPC UA, classifying bearing faults with physics-derived diagnostics, drafting work orders, and pausing for human approval — with a SQLite-persisted audit trail.
 
-Companion to [EMS-demo](https://github.com/DISSIDIA-986/EMS-demo) — a microgrid energy-management dashboard prototype I built earlier covering BESS / FFR / arbitrage / carbon accounting (currently a private repo; ping me for a walkthrough). This repo focuses on the *agent runtime* layer that would sit next to such a system: deterministic diagnostics, LangGraph workflow with `interrupt()`-based human approval, HTTP-sidecar architecture designed to plug into an MCP server wrapper (Roadmap §5) without re-architecting.
+The repo is the *agent runtime layer*: deterministic diagnostics, LangGraph workflow with `interrupt()`-based human approval, atomic SQLite state transitions, HTTP-sidecar architecture designed to plug into an MCP server wrapper (Roadmap §5) without re-architecting. Everything you need to evaluate it is here — code, tests, an honest evaluation set, and a documented failure mode.
 
 ## At a glance
 
@@ -50,6 +50,10 @@ The mock OPC UA server:
 ```bash
 python -m pdm_agent.opcua_mock
 ```
+
+## Context: companion to EMS-demo
+
+This MVP is the natural next step on top of [EMS-demo](https://github.com/DISSIDIA-986/EMS-demo) — a microgrid energy-management dashboard prototype I built earlier covering BESS / FFR / arbitrage / carbon accounting in React + FastAPI + TimescaleDB. EMS-demo is currently private (ping me for a walkthrough), but this PdM agent stands on its own: nothing in the runtime, eval, or tests below depends on EMS-demo being available.
 
 ## Architecture
 
