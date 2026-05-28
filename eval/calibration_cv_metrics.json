@@ -1,0 +1,168 @@
+{
+  "method": "leave-one-file-out",
+  "calibration_method": "temperature-multinomial-v1",
+  "files": [
+    "105.mat",
+    "118.mat",
+    "130.mat",
+    "169.mat",
+    "185.mat",
+    "197.mat",
+    "209.mat",
+    "222.mat",
+    "234.mat",
+    "97.mat"
+  ],
+  "n_windows": 110,
+  "calibrated_top1_accuracy": 0.4909090909090909,
+  "uncalibrated_diagnose_accuracy": 0.6363636363636364,
+  "pooled_top_label_ECE": 0.14143168945288845,
+  "multiclass_brier": 0.6903059469974494,
+  "fold_ece_mean": 0.3166478776444377,
+  "fold_ece_std": 0.2212357398643586,
+  "fold_ece_min": 0.0002453628631148286,
+  "fold_ece_max": 0.6235019221321185,
+  "folds": [
+    {
+      "held_out_file": "105.mat",
+      "n_test": 10,
+      "n_train": 100,
+      "accuracy": 1.0,
+      "ece": 0.3407827828667386,
+      "mean_confidence_on_correct": 0.6592172171332614,
+      "mean_confidence_on_wrong": null
+    },
+    {
+      "held_out_file": "118.mat",
+      "n_test": 10,
+      "n_train": 100,
+      "accuracy": 0.0,
+      "ece": 0.5503915427278896,
+      "mean_confidence_on_correct": null,
+      "mean_confidence_on_wrong": 0.5503915427278896
+    },
+    {
+      "held_out_file": "130.mat",
+      "n_test": 10,
+      "n_train": 100,
+      "accuracy": 1.0,
+      "ece": 0.00048372801132823273,
+      "mean_confidence_on_correct": 0.9995162719886718,
+      "mean_confidence_on_wrong": null
+    },
+    {
+      "held_out_file": "169.mat",
+      "n_test": 10,
+      "n_train": 100,
+      "accuracy": 1.0,
+      "ece": 0.5374552592834639,
+      "mean_confidence_on_correct": 0.4625447407165361,
+      "mean_confidence_on_wrong": null
+    },
+    {
+      "held_out_file": "185.mat",
+      "n_test": 10,
+      "n_train": 100,
+      "accuracy": 0.0,
+      "ece": 0.4691149953344926,
+      "mean_confidence_on_correct": null,
+      "mean_confidence_on_wrong": 0.4691149953344926
+    },
+    {
+      "held_out_file": "197.mat",
+      "n_test": 10,
+      "n_train": 100,
+      "accuracy": 0.4,
+      "ece": 0.07326262353236118,
+      "mean_confidence_on_correct": 0.30721127759635214,
+      "mean_confidence_on_wrong": 0.33975477571516327
+    },
+    {
+      "held_out_file": "209.mat",
+      "n_test": 10,
+      "n_train": 100,
+      "accuracy": 1.0,
+      "ece": 0.0002453628631148286,
+      "mean_confidence_on_correct": 0.9997546371368852,
+      "mean_confidence_on_wrong": null
+    },
+    {
+      "held_out_file": "222.mat",
+      "n_test": 10,
+      "n_train": 100,
+      "accuracy": 0.0,
+      "ece": 0.6235019221321185,
+      "mean_confidence_on_correct": null,
+      "mean_confidence_on_wrong": 0.6235019221321186
+    },
+    {
+      "held_out_file": "234.mat",
+      "n_test": 10,
+      "n_train": 100,
+      "accuracy": 1.0,
+      "ece": 0.22713832325928687,
+      "mean_confidence_on_correct": 0.7728616767407132,
+      "mean_confidence_on_wrong": null
+    },
+    {
+      "held_out_file": "97.mat",
+      "n_test": 20,
+      "n_train": 90,
+      "accuracy": 0.0,
+      "ece": 0.3441022364335822,
+      "mean_confidence_on_correct": null,
+      "mean_confidence_on_wrong": 0.3441022364335822
+    }
+  ],
+  "reliability": [
+    {
+      "bin_lo": 0.30000000000000004,
+      "bin_hi": 0.4,
+      "n": 33,
+      "mean_conf": 0.33908289696332355,
+      "accuracy": 0.12121212121212122
+    },
+    {
+      "bin_lo": 0.4,
+      "bin_hi": 0.5,
+      "n": 17,
+      "mean_conf": 0.4588219245768525,
+      "accuracy": 0.47058823529411764
+    },
+    {
+      "bin_lo": 0.5,
+      "bin_hi": 0.6000000000000001,
+      "n": 12,
+      "mean_conf": 0.5426707806371595,
+      "accuracy": 0.16666666666666666
+    },
+    {
+      "bin_lo": 0.6000000000000001,
+      "bin_hi": 0.7000000000000001,
+      "n": 14,
+      "mean_conf": 0.6562713955182807,
+      "accuracy": 0.7857142857142857
+    },
+    {
+      "bin_lo": 0.7000000000000001,
+      "bin_hi": 0.8,
+      "n": 9,
+      "mean_conf": 0.7412938819096497,
+      "accuracy": 0.5555555555555556
+    },
+    {
+      "bin_lo": 0.8,
+      "bin_hi": 0.9,
+      "n": 5,
+      "mean_conf": 0.832907456302657,
+      "accuracy": 0.8
+    },
+    {
+      "bin_lo": 0.9,
+      "bin_hi": 1.0,
+      "n": 20,
+      "mean_conf": 0.9996354545627784,
+      "accuracy": 1.0
+    }
+  ]
+}

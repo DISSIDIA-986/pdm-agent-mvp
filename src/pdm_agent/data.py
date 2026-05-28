@@ -24,37 +24,31 @@ log = logging.getLogger(__name__)
 # Per https://engineering.case.edu/bearingdatacenter/download-data-file these
 # files are individually downloadable .mat snapshots. We deliberately list a
 # small curated subset for MVP scope.
+def _cwru_entry(num: int, fault_class: str, dia: float, load_hp: int = 0, rpm_nominal: int = 1797) -> dict:
+    return {
+        "url": f"https://engineering.case.edu/sites/default/files/{num}.mat",
+        "fault_class": fault_class,
+        "fault_diameter_inches": dia,
+        "load_hp": load_hp,
+        "rpm_nominal": rpm_nominal,
+    }
+
+
 CWRU_DOWNLOAD_INDEX: dict[str, dict] = {
-    # filename -> {url, fault_class, fault_diameter_inches, load_hp, rpm_nominal, sha256_optional}
-    # NB: CWRU URLs occasionally rotate; loader falls back to synthetic if 404.
-    "97.mat": {
-        "url": "https://engineering.case.edu/sites/default/files/97.mat",
-        "fault_class": "normal",
-        "fault_diameter_inches": 0.0,
-        "load_hp": 0,
-        "rpm_nominal": 1797,
-    },
-    "105.mat": {
-        "url": "https://engineering.case.edu/sites/default/files/105.mat",
-        "fault_class": "inner_race",
-        "fault_diameter_inches": 0.007,
-        "load_hp": 0,
-        "rpm_nominal": 1797,
-    },
-    "118.mat": {
-        "url": "https://engineering.case.edu/sites/default/files/118.mat",
-        "fault_class": "ball",
-        "fault_diameter_inches": 0.007,
-        "load_hp": 0,
-        "rpm_nominal": 1797,
-    },
-    "130.mat": {
-        "url": "https://engineering.case.edu/sites/default/files/130.mat",
-        "fault_class": "outer_race",
-        "fault_diameter_inches": 0.007,
-        "load_hp": 0,
-        "rpm_nominal": 1797,
-    },
+    # Curated drive-end @ 12 kHz, load = 0 HP / RPM ≈ 1797, three fault diameters.
+    # Naming follows the official CWRU page (https://engineering.case.edu/bearingdatacenter/download-data-file).
+    # The 0.014" / 0.021" entries give the calibration step enough rows-per-class
+    # for one-vs-rest Platt fitting; baseline MVP uses only the 0.007" subset.
+    "97.mat":  _cwru_entry(97,  "normal",     0.000),
+    "105.mat": _cwru_entry(105, "inner_race", 0.007),
+    "118.mat": _cwru_entry(118, "ball",       0.007),
+    "130.mat": _cwru_entry(130, "outer_race", 0.007),
+    "169.mat": _cwru_entry(169, "inner_race", 0.014),
+    "185.mat": _cwru_entry(185, "ball",       0.014),
+    "197.mat": _cwru_entry(197, "outer_race", 0.014),
+    "209.mat": _cwru_entry(209, "inner_race", 0.021),
+    "222.mat": _cwru_entry(222, "ball",       0.021),
+    "234.mat": _cwru_entry(234, "outer_race", 0.021),
 }
 
 FaultClass = Literal["normal", "inner_race", "ball", "outer_race"]

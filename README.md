@@ -13,7 +13,7 @@ The repo is the *agent runtime layer*: deterministic diagnostics, LangGraph work
 |--|--|
 | **Stack** | Python 3.11, FastAPI, asyncua (OPC UA), LangGraph + SqliteSaver, SQLite (WAL), scipy, MCP SDK |
 | **Foundation** | Inspired by `LGDiMaggio/predictive-maintenance-mcp` (ISO-13374-flavoured diagnostic structure). MVP re-implements the parts we need to keep the dependency graph small and the audit story tight. |
-| **Tests** | 65 passing, includes a real-socket OPC UA E2E test, checkpoint-persistence tests, and MCP advisory-only security tests |
+| **Tests** | 76 passing, includes a real-socket OPC UA E2E test, checkpoint-persistence tests, MCP advisory-only security tests, and calibration spec tests |
 | **Eval** | 43-case CWRU-derived eval set; **multi-class accuracy 76.7%** (perfect on normal / inner_race / outer_race, 0/10 on ball — see §Evaluation); **binary fault-detection F1 0.87 vs 0.50 baseline** |
 | **Sidecar latency** | p50 HTTP overhead 4-14 ms across 0.5/1/2 s windows |
 | **Confidence** | Not a calibrated posterior — softmax over deterministic family scores. Misclassifications can still report high confidence; treat as a ranking signal. |
@@ -163,6 +163,29 @@ The envelope-spectrum step in action on one real CWRU inner-race window — the 
 - The 43 windows are sliced from **4 CWRU .mat files** (one per fault class). There is **no file-level held-out split** — adjacent windows come from the same physical bearing run, so the multi-class accuracy above is optimistic vs cross-bearing generalisation. Roadmap §2 lists this as the next eval upgrade.
 - Headline metric in §At-a-glance is the **binary fault-vs-normal F1** because the multi-class breakdown is dominated by the ball-fault failure mode. Both numbers are reported here so neither story can be cherry-picked.
 
+### Confidence calibration (research / WIP)
+
+The deterministic family-score diagnostic outputs an uncalibrated softmax `confidence` field that can read 0.99 on misclassifications. To address this we ship a multinomial temperature-scaling calibrator (`pdm_agent.calibration`, 2 fit parameters: `T` + `b_normal`). Pass a fitted `Calibrator` into `diagnose()` to receive `calibrated_probabilities` alongside the deterministic verdict — the calibrator does NOT change the deployed `predicted_class` decision.
+
+Reported on a **leave-one-FILE-out** cross-validation over 110 windows from 10 CWRU files (3 defect diameters × 3 fault classes + normal):
+
+```
+calibrated posterior top-1 accuracy = 0.491   (argmax of calibrated P(class | scores))
+uncalibrated diagnose() accuracy    = 0.636   (control — the deployed rule-based decision)
+pooled top-label ECE                = 0.141
+fold ECE mean ± std                 = 0.317 ± 0.221    (range 0.000 — 0.624)
+multiclass Brier                    = 0.690
+```
+
+![Reliability diagram (leave-one-file-out CWRU)](docs/figures/calibration_reliability.png)
+
+Two things the numbers honestly say:
+
+1. **Calibrated and rule-based are not apples-to-apples.** The 0.491 is the argmax of the calibrated 4-class posterior; the 0.636 is the diagnostic's deployed `predicted_class`. The calibrator is a research artifact riding alongside the decision path, not a replacement for it.
+2. **Per-fold ECE varies from 0.000 to 0.624.** Pooling everything into one number (0.141) hides real cross-file shift — different defect diameters present family-score distributions the calibrator didn't see in training. This is the honest cost of an 110-window training pool.
+
+Position: this is a working research artifact, not "calibration solved". The methodology (multinomial T-scaling, LOO-by-file, fold-level ECE + standard multiclass Brier) is the right shape for scaling up to a larger CWRU pool or a real customer dataset. Implementation is in `src/pdm_agent/calibration.py`; run via `python -m eval.run_calibration` to regenerate.
+
 ### Failure mode: 0.007" ball defects
 
 CWRU's 0.007-inch ball-defect signatures concentrate energy in FTF-modulated sidebands with a weak harmonic fundamental — classical envelope-spectrum methods systematically under-detect them. Order tracking, cepstrum, or a supervised model with more labelled samples would lift this number. Out of scope for this MVP; documented in `eval/error_analysis.md`.
@@ -233,6 +256,7 @@ python -m pdm_agent.mcp_server --transport sse --port 8210
 src/pdm_agent/
   data.py              CWRU loader + deterministic synthetic vibration generator
   diagnostic.py        envelope-spectrum v2 with family scoring + RPM-derived tolerance
+  calibration.py       multinomial temperature-scaling posterior calibrator (research)
   sidecar.py           FastAPI service exposing diagnose() over HTTP
   mcp_server.py        MCP wrapper (advisory-only decision surface; see §MCP)
   opcua_mock.py        asyncua mock server publishing a scenario loop
@@ -295,8 +319,9 @@ The design patterns (audit log, atomic state transitions, persistent checkpoints
 2. **File-level held-out CWRU split** for cross-bearing generalisation (current eval is same-file-window)
 3. **Order tracking + cepstrum** to lift ball-fault detection above zero
 4. **Confidence calibration** via Platt / isotonic on a labelled held-out set
-5. **MCP server wrapper** around the existing HTTP sidecar so it plugs into Claude Code / Claude Desktop
+5. ~~MCP server wrapper around the existing HTTP sidecar~~ — done in commit 665e391; see §MCP above
 6. **PV-vision line** (using a non-NC dataset, e.g. self-curated; ELPV is for learning only)
+7. ~~Confidence calibration via Platt / temperature scaling~~ — shipped as a research artifact; see §Confidence calibration above
 
 ## Author's note
 

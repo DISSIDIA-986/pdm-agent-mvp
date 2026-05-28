@@ -71,6 +71,12 @@ class Diagnosis:
     sample_rate_hz: int
     rpm: float
     method: str = "envelope-spectrum-v2-family"
+    # Optional calibrated posterior — populated when diagnose() is given a
+    # `calibrator` argument (see pdm_agent.calibration). When present, the
+    # value is a properly fit Platt-scaling probability and is calibrated in
+    # the ECE sense over the training distribution. When None, only the
+    # uncalibrated `confidence` field is available.
+    calibrated_probabilities: dict[str, float] | None = None
 
     # IMPORTANT: `confidence` is *not* a calibrated posterior probability. It is
     # a softmax over the deterministic family scores (one per fault class plus
@@ -78,8 +84,8 @@ class Diagnosis:
     # still produce confidence close to 1.0 — eval/error_analysis.md
     # documents this. Treat it as a ranking signal between the competing
     # candidate classes; do NOT show it to operators as "% probability of
-    # failure". Real calibration would require Platt scaling or isotonic
-    # regression on a held-out labelled set.
+    # failure". For calibrated output, pass a fitted `Calibrator` into
+    # diagnose() and read `calibrated_probabilities` instead.
 
     def to_dict(self) -> dict:
         return {
@@ -88,6 +94,10 @@ class Diagnosis:
             "severity": self.severity,
             "confidence": round(self.confidence, 4),
             "confidence_is_calibrated": False,
+            "calibrated_probabilities": (
+                {k: round(v, 4) for k, v in self.calibrated_probabilities.items()}
+                if self.calibrated_probabilities is not None else None
+            ),
             "time_features": self.time_features.to_dict(),
             "evidence": [e.to_dict() for e in self.evidence],
             "sample_rate_hz": self.sample_rate_hz,
@@ -244,8 +254,15 @@ def _half_width_hz(sample_rate_hz: int, n_samples: int, fundamental_hz: float, r
     return float(max(2.0 * bin_hz, drift_hz, 1.0))
 
 
-def diagnose(sample: VibrationSample) -> Diagnosis:
-    """Run end-to-end diagnostic on a VibrationSample. Pure function, no I/O."""
+def diagnose(sample: VibrationSample, calibrator: "Calibrator | None" = None) -> Diagnosis:  # noqa: F821
+    """Run end-to-end diagnostic on a VibrationSample. Pure function, no I/O.
+
+    If `calibrator` is provided, the Diagnosis includes calibrated per-class
+    posterior probabilities derived from the family scores. The deterministic
+    decision (predicted_class, severity) is computed independently of the
+    calibrator — calibration affects the reported probabilities, not the
+    chosen class.
+    """
     tf = time_features(sample.signal)
     freqs, spectrum = envelope_spectrum(sample.signal, sample.sample_rate_hz)
 
@@ -310,6 +327,11 @@ def diagnose(sample: VibrationSample) -> Diagnosis:
     if predicted == "normal":
         severity = "normal"
 
+    calibrated_probs: dict[str, float] | None = None
+    if calibrator is not None:
+        family_scores = {e.fault_class: e.score for e in evidences}
+        calibrated_probs = calibrator.calibrate(family_scores)
+
     return Diagnosis(
         sample_id=sample.sample_id,
         predicted_class=predicted,
@@ -319,6 +341,7 @@ def diagnose(sample: VibrationSample) -> Diagnosis:
         evidence=evidences,
         sample_rate_hz=sample.sample_rate_hz,
         rpm=sample.rpm,
+        calibrated_probabilities=calibrated_probs,
     )
 
 

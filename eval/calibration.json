@@ -1,0 +1,25 @@
+{
+  "version": "temperature-multinomial-v1",
+  "method": "envelope-spectrum-v2-family",
+  "temperature": 298.13209095388834,
+  "normal_bias": 1.747953540968857,
+  "n_train": 110,
+  "n_train_normal": 20,
+  "n_train_fault": {
+    "inner_race": 30,
+    "outer_race": 30,
+    "ball": 30
+  },
+  "training_pool_files": [
+    "105.mat",
+    "118.mat",
+    "130.mat",
+    "169.mat",
+    "185.mat",
+    "197.mat",
+    "209.mat",
+    "222.mat",
+    "234.mat",
+    "97.mat"
+  ]
+}
