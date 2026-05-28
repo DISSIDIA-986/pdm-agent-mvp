@@ -3,15 +3,17 @@
 > **Predictive-maintenance agent runtime, not another AI copilot.**
 > Vibration-only closed loop on a simulated microgrid BESS asset, ingesting OPC UA, classifying bearing faults with physics-derived diagnostics, drafting work orders, and pausing for human approval — with a SQLite-persisted audit trail.
 
-The repo is the *agent runtime layer*: deterministic diagnostics, LangGraph workflow with `interrupt()`-based human approval, atomic SQLite state transitions, HTTP-sidecar architecture designed to plug into an MCP server wrapper (Roadmap §5) without re-architecting. Everything you need to evaluate it is here — code, tests, an honest evaluation set, and a documented failure mode.
+![LangGraph runtime: ingest → diagnose → route → human-approval gate → audit](docs/figures/workflow.png)
+
+The repo is the *agent runtime layer*: deterministic diagnostics, LangGraph workflow with `interrupt()`-based human approval, atomic SQLite state transitions, and two thin protocol wrappers (plain HTTP sidecar + an MCP server — see §MCP). Everything you need to evaluate it is here — code, tests, an honest evaluation set, a documented failure mode, and a [companion blog post](docs/blog/runtime-not-copilot.md) on the design.
 
 ## At a glance
 
 | | |
 |--|--|
-| **Stack** | Python 3.11, FastAPI, asyncua (OPC UA), LangGraph + SqliteSaver, SQLite (WAL), scipy |
+| **Stack** | Python 3.11, FastAPI, asyncua (OPC UA), LangGraph + SqliteSaver, SQLite (WAL), scipy, MCP SDK |
 | **Foundation** | Inspired by `LGDiMaggio/predictive-maintenance-mcp` (ISO-13374-flavoured diagnostic structure). MVP re-implements the parts we need to keep the dependency graph small and the audit story tight. |
-| **Tests** | 47 passing, 84% coverage, includes a real-socket OPC UA E2E test and checkpoint-persistence tests |
+| **Tests** | 65 passing, includes a real-socket OPC UA E2E test, checkpoint-persistence tests, and MCP advisory-only security tests |
 | **Eval** | 43-case CWRU-derived eval set; **multi-class accuracy 76.7%** (perfect on normal / inner_race / outer_race, 0/10 on ball — see §Evaluation); **binary fault-detection F1 0.87 vs 0.50 baseline** |
 | **Sidecar latency** | p50 HTTP overhead 4-14 ms across 0.5/1/2 s windows |
 | **Confidence** | Not a calibrated posterior — softmax over deterministic family scores. Misclassifications can still report high confidence; treat as a ranking signal. |
@@ -150,6 +152,12 @@ Binary fault detection: precision=1.00  recall=0.33  F1=0.50
 
 **Improvement vs baseline: +74 % relative F1 (0.50 → 0.87)**.
 
+![Confusion: diagnose v2 vs RMS baseline](docs/figures/confusion.png)
+
+The envelope-spectrum step in action on one real CWRU inner-race window — the diagnostic's primary evidence (red BPFI line at 162 Hz) lines up directly with the largest peak in the envelope spectrum:
+
+![Raw vibration + envelope spectrum on a CWRU inner-race fault](docs/figures/envelope_demo.png)
+
 ### Eval set construction caveats
 
 - The 43 windows are sliced from **4 CWRU .mat files** (one per fault class). There is **no file-level held-out split** — adjacent windows come from the same physical bearing run, so the multi-class accuracy above is optimistic vs cross-bearing generalisation. Roadmap §2 lists this as the next eval upgrade.
@@ -188,6 +196,37 @@ Third-party components and their effective constraints on portfolio use:
 
 If extending this MVP toward PV-vision or acoustic modalities, evaluate license fit deliberately. ELPV / MVTec AD are fine for *learning* and *non-commercial portfolios*; AGPL-licensed model weights are a sharper trap.
 
+## MCP
+
+There is an MCP server wrapper around the same `diagnose()` brain — see [`src/pdm_agent/mcp_server.py`](src/pdm_agent/mcp_server.py). Local-development only (no auth, binds to 127.0.0.1). Tools and resources:
+
+| Surface | Name | Effect |
+|---|---|---|
+| tool | `diagnose_vibration` | run envelope-spectrum-v2 on a signal array |
+| tool | `diagnose_synthetic` | generate + diagnose a textbook synthetic window |
+| tool | `poll_opc_asset` | read latest vibration window from the mock OPC UA server, immediately diagnose |
+| tool | `list_work_orders` | read-only list filtered by status |
+| tool | `propose_decision_for_work_order` | **advisory only** — records an `approve` / `reject` recommendation in a separate `agent_recommendations` table; does NOT mutate work-order status |
+| tool | `list_agent_recommendations` | read agent-proposed recommendations |
+| tool | `list_audit_trail` | read the work_orders audit log |
+| resource | `pdm://config` | diagnostic configuration + scope statement |
+| resource | `pdm://security` | explicit security-boundary statement (no auth, advisory-only write surface) |
+| resource | `pdm://error-analysis` | live `eval/error_analysis.md` |
+
+**Why no `approve_work_order` tool:** an LLM client could otherwise pass `decided_by="human:alice"` and silently approve maintenance work no human ever saw. The advisory-only model is enforced in code — `proposed_by` is regex-checked against `^agent:[a-zA-Z0-9._-]{1,64}$`, so human impersonation is rejected at the tool boundary. Final work-order status transitions are reachable only through a trusted-process caller of `WorkOrderStore.decide()`. This MVP does not ship an authenticated operator UI; that's the production gap, documented in `pdm://security`.
+
+Run via stdio for Claude Code / Claude Desktop:
+
+```bash
+python -m pdm_agent.mcp_server
+```
+
+Or via SSE for MCP Inspector (still local-only):
+
+```bash
+python -m pdm_agent.mcp_server --transport sse --port 8210
+```
+
 ## Repository layout
 
 ```
@@ -195,6 +234,7 @@ src/pdm_agent/
   data.py              CWRU loader + deterministic synthetic vibration generator
   diagnostic.py        envelope-spectrum v2 with family scoring + RPM-derived tolerance
   sidecar.py           FastAPI service exposing diagnose() over HTTP
+  mcp_server.py        MCP wrapper (advisory-only decision surface; see §MCP)
   opcua_mock.py        asyncua mock server publishing a scenario loop
   opcua_client.py      browse-by-name OPC UA client
   workflow.py          LangGraph state machine with persistent SqliteSaver checkpoints
@@ -203,6 +243,7 @@ tests/
   test_data.py                     synthetic generator + validation
   test_diagnostic.py               peak-detection physics sanity
   test_sidecar.py                  HTTP integration
+  test_mcp_server.py               MCP tools + advisory-only security model
   test_workorder.py                lifecycle + audit + concurrency-safe transitions
   test_workflow.py                 LangGraph routing + interrupts
   test_workflow_persistence.py     SqliteSaver across rebuilds + thread-id guards
