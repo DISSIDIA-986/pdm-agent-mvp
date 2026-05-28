@@ -1,8 +1,15 @@
-"""Build a deterministic evaluation set from the downloaded CWRU subset.
+"""Build a deterministic 43-case evaluation set from the downloaded CWRU subset.
 
-Effective size depends on how many 1-second windows each CWRU file yields with
-our 12 kHz sample rate. With the curated 4-file subset (97/105/118/130) we
-land at 43 cases (13 normal + 10 each of inner_race / outer_race / ball).
+The 4 curated CWRU files (97/105/118/130) yield exactly:
+  - 97.mat  (normal, ~3.9 MB)       -> 20 windows of 1 second @ 12 kHz
+  - 105.mat (inner_race, 0.007")    -> 10 windows
+  - 118.mat (ball, 0.007")          -> 10 windows
+  - 130.mat (outer_race, 0.007")    -> 10 windows
+
+We subsample normal down to 13 (keeps class balance reasonable) and take all
+10 fault windows, giving 13 + 10 + 10 + 10 = 43 cases. Shuffled with a fixed
+seed for reproducibility. To extend, add files to data.CWRU_DOWNLOAD_INDEX
+and bump CASES_PER_CLASS targets here.
 
 Layout (eval_v1.jsonl):
   one line per case: {"id", "fault_class", "source_file", "window_idx",
@@ -23,7 +30,9 @@ from pdm_agent.data import load_cwru_dataset
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 OUT = ROOT / "eval" / "eval_v1.jsonl"
 
-CASES_PER_CLASS = {"normal": 13, "inner_race": 12, "outer_race": 13, "ball": 12}  # sums to 50
+# Target per class. Capped by what the curated CWRU subset actually yields:
+# fault files give exactly 10 windows each, so 'normal' is the only knob.
+CASES_PER_CLASS = {"normal": 13, "inner_race": 10, "outer_race": 10, "ball": 10}  # = 43
 
 
 def main() -> None:
