@@ -13,7 +13,7 @@ The repo is the *agent runtime layer*: deterministic diagnostics, LangGraph work
 |--|--|
 | **Stack** | Python 3.11, FastAPI, asyncua (OPC UA), LangGraph + SqliteSaver, SQLite (WAL), scipy, MCP SDK |
 | **Foundation** | Inspired by `LGDiMaggio/predictive-maintenance-mcp` (ISO-13374-flavoured diagnostic structure). MVP re-implements the parts we need to keep the dependency graph small and the audit story tight. |
-| **Tests** | 76 passing, includes a real-socket OPC UA E2E test, checkpoint-persistence tests, MCP advisory-only security tests, and calibration spec tests |
+| **Tests** | 110 passing, includes a real-socket OPC UA E2E test, checkpoint-persistence tests, MCP advisory-only security tests, calibration spec tests, and multimodal acoustic+vibration sharing tests |
 | **Eval** | 43-case CWRU-derived eval set; **multi-class accuracy 76.7%** (perfect on normal / inner_race / outer_race, 0/10 on ball — see §Evaluation); **binary fault-detection F1 0.87 vs 0.50 baseline** |
 | **Sidecar latency** | p50 HTTP overhead 4-14 ms across 0.5/1/2 s windows |
 | **Confidence** | Not a calibrated posterior — softmax over deterministic family scores. Misclassifications can still report high confidence; treat as a ranking signal. |
@@ -162,6 +162,16 @@ The envelope-spectrum step in action on one real CWRU inner-race window — the 
 
 - The 43 windows are sliced from **4 CWRU .mat files** (one per fault class). There is **no file-level held-out split** — adjacent windows come from the same physical bearing run, so the multi-class accuracy above is optimistic vs cross-bearing generalisation. Roadmap §2 lists this as the next eval upgrade.
 - Headline metric in §At-a-glance is the **binary fault-vs-normal F1** because the multi-class breakdown is dominated by the ball-fault failure mode. Both numbers are reported here so neither story can be cherry-picked.
+
+### Acoustic modality (Roadmap §2)
+
+Same agent runtime, second signal type. `pdm_agent.acoustic` ingests MIMII-style fan recordings (16 kHz mono WAV, 10 s clips); `pdm_agent.acoustic_diagnostic` extracts 8 spectral features (centroid, roll-off, flatness, band ratios, envelope kurtosis) and scores them against a per-feature mean/std baseline fit on a pool of "normal" clips. The acoustic LangGraph workflow (`build_acoustic_workflow`) is a parallel state machine that **shares the same `WorkOrderStore` and `audit_log` as the vibration path** — vibration and acoustic incidents on the same asset land in one table, which is the multimodal payoff.
+
+Honest sub-scope:
+- We do **not** auto-download MIMII (~10 GB per SNR). The loader `load_mimii_fan_dir()` points at any extracted MIMII directory the user populates manually; if absent, the pipeline runs on a deterministic synthetic fan generator (`generate_synthetic_acoustic`) that injects 1-3 kHz broadband + 0.5 Hz amplitude modulation for the abnormal class.
+- The shipped eval is **synthetic-only and generator-shared with the baseline**. On a sample-disjoint subset of seeds (30 normal + 30 abnormal at SNR 12 dB) the z-score-baseline diagnostic achieves F1=1.0 vs an RMS-threshold baseline at F1=0.67. This is an **internal-consistency smoke test, not evidence of MIMII or field generalisation**. Real MIMII evaluation requires the user to extract the Zenodo zip and re-run `eval/run_acoustic_eval.py` against the populated `data/raw/mimii/` directory.
+- MIMII fan recordings are an **analog benchmark** for a microgrid inverter cooling fan, not a vendor-validated inverter model. Same scope language as the CWRU disclosure.
+- Acoustic `anomaly_score` is **not** a calibrated probability. We deliberately store it on the `WorkOrder.evidence` payload with a `modality: "acoustic"` tag and put `confidence=-1.0` on the work-order row itself, so any UI that naively averages "confidence" across modalities is forced to look at the per-incident modality first.
 
 ### Confidence calibration (research / WIP)
 
@@ -329,7 +339,7 @@ The design patterns (audit log, atomic state transitions, persistent checkpoints
 
 **MVP (vibration-only).** Roadmap, in priority order if extended:
 
-1. **Acoustic line** (MIMII fan subset → multimodal severity fusion)
+1. ~~Acoustic line (MIMII fan subset → multimodal severity fusion)~~ — shipped in this batch; see §Acoustic modality
 2. **File-level held-out CWRU split** for cross-bearing generalisation (current eval is same-file-window)
 3. **Order tracking + cepstrum** to lift ball-fault detection above zero
 4. **Confidence calibration** via Platt / isotonic on a labelled held-out set

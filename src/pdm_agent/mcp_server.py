@@ -59,6 +59,12 @@ import numpy as np
 from mcp.server.fastmcp import FastMCP
 
 from . import __version__
+from .acoustic import AcousticSample, generate_synthetic_acoustic
+from .acoustic_diagnostic import (
+    AcousticBaseline,
+    diagnose_acoustic,
+    fit_baseline as fit_acoustic_baseline,
+)
 from .data import VibrationSample, generate_synthetic
 from .diagnostic import diagnose
 from .workorder import WorkOrderStore
@@ -171,6 +177,83 @@ def diagnose_synthetic(
         "ground_truth": fault_class,
         "diagnosis": d.to_dict(),
         "matched": d.predicted_class == fault_class,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Tools — acoustic modality (second-modality counterpart to diagnose_*)
+# ---------------------------------------------------------------------------
+
+_acoustic_baseline_cache: AcousticBaseline | None = None
+
+
+def _acoustic_baseline() -> AcousticBaseline:
+    """Lazy synthetic-normal baseline, fit on first call. Mirrors the sidecar's."""
+    global _acoustic_baseline_cache
+    if _acoustic_baseline_cache is None:
+        pool = [
+            generate_synthetic_acoustic("normal", seed=20260528 + i, snr_db=12.0)
+            for i in range(12)
+        ]
+        _acoustic_baseline_cache = fit_acoustic_baseline(pool)
+    return _acoustic_baseline_cache
+
+
+@mcp.tool()
+def diagnose_acoustic_signal(
+    signal: list[float],
+    sample_rate_hz: int = 16_000,
+    machine_id: str = "id_unknown",
+    sample_id: str = "ad-hoc",
+) -> dict:
+    """Run the acoustic z-score-baseline diagnostic on a fan-microphone clip.
+
+    Args:
+        signal: 1-D PCM samples in roughly [-1, 1] (e.g. from a 16-bit WAV
+            normalised by /32768.0). Minimum 4 seconds at `sample_rate_hz`.
+        sample_rate_hz: typically 16000 (MIMII canonical) or 44100/48000.
+        machine_id: free-form asset identifier (e.g. "inverter-fan-A").
+        sample_id: traceable label used downstream in audit logs.
+
+    Returns the diagnosis dict including `anomaly_score` (mean |z-score| over
+    8 hand-crafted features), `predicted_label`, severity, and the raw
+    features for transparency.
+    """
+    if len(signal) < 4 * sample_rate_hz:
+        return {"error": f"signal too short for acoustic diagnosis (need >= 4 s, got {len(signal)/sample_rate_hz:.2f} s)"}
+    arr = np.asarray(signal, dtype=np.float32)
+    if not np.all(np.isfinite(arr)):
+        return {"error": "signal contains non-finite values"}
+    sample = AcousticSample(
+        sample_id=sample_id,
+        label="normal",  # ground truth unknown to the diagnostic
+        signal=arr,
+        sample_rate_hz=sample_rate_hz,
+        machine_id=machine_id,
+        source="synthetic",
+    )
+    d = diagnose_acoustic(sample, _acoustic_baseline())
+    return d.to_dict()
+
+
+@mcp.tool()
+def diagnose_acoustic_synthetic(
+    label: Literal["normal", "abnormal"] = "abnormal",
+    snr_db: float = 12.0,
+    seed: int = 0,
+) -> dict:
+    """Generate a deterministic synthetic fan clip and diagnose it.
+
+    Mirrors `diagnose_synthetic` for the vibration modality — useful as a
+    smoke check from the chat surface ("does the acoustic diagnostic still
+    fire on a textbook abnormal fan clip?") without needing a real recording.
+    """
+    s = generate_synthetic_acoustic(label, seed=seed, snr_db=snr_db)
+    d = diagnose_acoustic(s, _acoustic_baseline())
+    return {
+        "ground_truth": label,
+        "diagnosis": d.to_dict(),
+        "matched": d.predicted_label == label,
     }
 
 
@@ -348,8 +431,21 @@ def config_resource() -> str:
     return json.dumps(
         {
             "version": __version__,
-            "method": "envelope-spectrum-v2-family",
+            "modalities": {
+                "vibration": {
+                    "method": "envelope-spectrum-v2-family",
+                    "labels": ["normal", "inner_race", "outer_race", "ball"],
+                },
+                "acoustic": {
+                    "method": "acoustic-zscore-baseline-v1",
+                    "labels": ["normal", "abnormal"],
+                },
+            },
+            "method": "envelope-spectrum-v2-family",  # legacy alias
+            "vibration_method": "envelope-spectrum-v2-family",
+            "acoustic_method": "acoustic-zscore-baseline-v1",
             "supports": ["normal", "inner_race", "outer_race", "ball"],
+            "acoustic_labels": ["normal", "abnormal"],
             "severity_buckets": ["normal", "watch", "alert", "critical"],
             "confidence_semantics": (
                 "Softmax over deterministic family scores. NOT a calibrated "

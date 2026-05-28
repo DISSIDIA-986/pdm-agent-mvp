@@ -26,6 +26,8 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, StateGraph
 from langgraph.types import Command, interrupt
 
+from .acoustic import AcousticSample
+from .acoustic_diagnostic import AcousticBaseline, AcousticDiagnosis, diagnose_acoustic
 from .data import VibrationSample
 from .diagnostic import Diagnosis, diagnose
 from .workorder import WorkOrder, WorkOrderStore
@@ -225,6 +227,173 @@ def build_workflow(store: WorkOrderStore, *, checkpoint_db: str | None = None):
         import sqlite3
         # check_same_thread=False so the workflow can be invoked from any thread;
         # SqliteSaver itself serialises writes via its own lock.
+        conn = sqlite3.connect(checkpoint_db, check_same_thread=False)
+        checkpointer = SqliteSaver(conn)
+        checkpointer.setup()
+    else:
+        checkpointer = MemorySaver()
+    return g.compile(checkpointer=checkpointer)
+
+
+# ---------------------------------------------------------------------------
+# Acoustic workflow — second-modality counterpart sharing the WorkOrderStore
+# ---------------------------------------------------------------------------
+#
+# We deliberately keep the acoustic workflow as a parallel state graph rather
+# than overloading the vibration workflow. The bodies are nearly identical
+# (diagnose -> route severity -> draft -> human-approval) but the diagnose
+# step ingests an AcousticSample and uses a different scoring method.
+# The audit log + WorkOrderStore are SHARED so a single asset's incident
+# history is one table across modalities — that's the multimodal payoff.
+
+class AcousticWorkflowState(TypedDict, total=False):
+    asset_id: str
+    sample: AcousticSample
+    baseline: AcousticBaseline
+    diagnosis: AcousticDiagnosis | None
+    summary: str | None
+    work_order: WorkOrder | None
+    decision: dict | None
+    final_status: str | None
+
+
+def _node_diagnose_acoustic(state: AcousticWorkflowState) -> AcousticWorkflowState:
+    sample = state["sample"]
+    baseline = state["baseline"]
+    d = diagnose_acoustic(sample, baseline)
+    log.info(
+        "acoustic diagnose: sample=%s pred=%s severity=%s anomaly_score=%.2f",
+        sample.sample_id, d.predicted_label, d.severity, d.anomaly_score,
+    )
+    return {"diagnosis": d}
+
+
+def _acoustic_summary(d: AcousticDiagnosis, asset_id: str) -> str:
+    """Deterministic acoustic summary (no LLM dependency — keeps this MVP
+    independent of API keys for the second modality). LLM-rewriting can be
+    added later by mirroring `_llm_summary` from the vibration path."""
+    feats = d.features
+    return (
+        f"Asset {asset_id} acoustic clip {d.sample_id} (machine {d.machine_id}): "
+        f"predicted {d.predicted_label} with severity {d.severity}, "
+        f"anomaly score {d.anomaly_score:.2f} over {d.baseline_n_train}-clip "
+        f"baseline. Spectral centroid {feats.centroid_hz:.0f} Hz, mid-band "
+        f"(500-3000 Hz) ratio {feats.band_mid_ratio:.2f}, envelope kurtosis "
+        f"{feats.envelope_kurtosis:.2f}. Calibration not yet fit; treat "
+        f"anomaly_score as a ranking signal."
+    )
+
+
+def _node_draft_acoustic(state: AcousticWorkflowState, store: WorkOrderStore) -> AcousticWorkflowState:
+    d = state["diagnosis"]
+    asset_id = state["asset_id"]
+    summary = _acoustic_summary(d, asset_id)
+    # Acoustic anomaly_score is NOT a calibrated probability and is NOT
+    # comparable to the vibration diagnose() confidence. We deliberately
+    # store the raw score on the evidence dict (where the UI can inspect
+    # it with proper semantics) and put a sentinel in WorkOrder.confidence
+    # so any UI that naively averages "confidence" across modalities
+    # is forced to look at evidence.modality first.
+    wo = store.create_draft(
+        sample_id=d.sample_id,
+        asset_id=asset_id,
+        severity=d.severity,
+        predicted_class=f"acoustic:{d.predicted_label}",  # explicit modality prefix
+        confidence=-1.0,  # sentinel: "see evidence.anomaly_score; not comparable to vibration"
+        summary=summary,
+        evidence={
+            **d.to_dict(),
+            "modality": "acoustic",
+            "anomaly_score_note": "Not a calibrated probability — use only for ranking. See pdm://security and README §Confidence calibration.",
+        },
+    )
+    log.info("acoustic draft work order %s severity=%s", wo.id, wo.severity)
+    return {"work_order": wo, "summary": summary}
+
+
+def _node_request_human_acoustic(state: AcousticWorkflowState, store: WorkOrderStore) -> Command:
+    wo = state["work_order"]
+    store.request_approval(wo.id)
+    log.info("acoustic waiting for human decision on %s", wo.id)
+    decision = interrupt(
+        {
+            "modality": "acoustic",
+            "work_order_id": wo.id,
+            "asset_id": wo.asset_id,
+            "severity": wo.severity,
+            "predicted_label": wo.predicted_class,
+            "anomaly_score": state["diagnosis"].anomaly_score,
+            "summary": wo.summary,
+            "ask": "Approve maintenance work order on acoustic anomaly? Reply with {approve, decided_by, note}.",
+        }
+    )
+    return Command(update={"decision": decision})
+
+
+def _node_persist_acoustic(state: AcousticWorkflowState, store: WorkOrderStore) -> AcousticWorkflowState:
+    wo = state["work_order"]
+    decision = state["decision"] or {"approve": False, "decided_by": "auto:no_decision"}
+    store.decide(
+        wo.id,
+        approve=bool(decision.get("approve", False)),
+        decided_by=str(decision.get("decided_by", "human:unknown")),
+        note=decision.get("note"),
+    )
+    return {"final_status": "human_decided"}
+
+
+def _node_persist_acoustic_auto(state: AcousticWorkflowState, store: WorkOrderStore) -> AcousticWorkflowState:
+    wo = state["work_order"]
+    store.request_approval(wo.id)
+    return {"final_status": "auto_pending"}
+
+
+def _node_acoustic_normal(state: AcousticWorkflowState) -> AcousticWorkflowState:
+    return {"final_status": "normal_no_action"}
+
+
+def _route_acoustic_severity(state: AcousticWorkflowState) -> str:
+    d = state["diagnosis"]
+    if d is None or d.severity == "normal":
+        return "normal"
+    if d.severity == "watch":
+        return "auto_branch"
+    return "human_branch"
+
+
+def build_acoustic_workflow(store: WorkOrderStore, *, checkpoint_db: str | None = None):
+    """Acoustic counterpart to `build_workflow`. Shares the same
+    WorkOrderStore so vibration and acoustic incidents land in the same
+    audit_log table — that's the multimodal narrative made concrete."""
+    g = StateGraph(AcousticWorkflowState)
+    g.add_node("diagnose", _node_diagnose_acoustic)
+    g.add_node("draft", lambda s: _node_draft_acoustic(s, store))
+    g.add_node("auto_branch", lambda s: _node_persist_acoustic_auto(s, store))
+    g.add_node("human_branch", lambda s: _node_request_human_acoustic(s, store))
+    g.add_node("persist_decision", lambda s: _node_persist_acoustic(s, store))
+    g.add_node("normal_branch", _node_acoustic_normal)
+
+    g.set_entry_point("diagnose")
+    g.add_conditional_edges(
+        "diagnose", _route_acoustic_severity,
+        {"normal": "normal_branch", "auto_branch": "draft", "human_branch": "draft"},
+    )
+
+    def post_draft_router(state: AcousticWorkflowState) -> str:
+        sev = state["diagnosis"].severity
+        return "auto_branch" if sev == "watch" else "human_branch"
+
+    g.add_conditional_edges(
+        "draft", post_draft_router,
+        {"auto_branch": "auto_branch", "human_branch": "human_branch"},
+    )
+    g.add_edge("human_branch", "persist_decision")
+    g.add_edge("persist_decision", END)
+    g.add_edge("auto_branch", END)
+    g.add_edge("normal_branch", END)
+
+    if checkpoint_db:
+        import sqlite3
         conn = sqlite3.connect(checkpoint_db, check_same_thread=False)
         checkpointer = SqliteSaver(conn)
         checkpointer.setup()

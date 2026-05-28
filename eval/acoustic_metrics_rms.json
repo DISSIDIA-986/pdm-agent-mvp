@@ -1,0 +1,24 @@
+{
+  "method": "acoustic-rms-threshold-baseline",
+  "n_samples": 60,
+  "accuracy": 0.5,
+  "binary_anomaly_detection": {
+    "true_positive": 30,
+    "false_negative": 0,
+    "false_positive": 30,
+    "true_negative": 0,
+    "precision": 0.5,
+    "recall": 1.0,
+    "f1": 0.6667
+  },
+  "confusion": {
+    "normal": {
+      "normal": 0,
+      "abnormal": 30
+    },
+    "abnormal": {
+      "normal": 0,
+      "abnormal": 30
+    }
+  }
+}

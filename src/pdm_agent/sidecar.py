@@ -23,6 +23,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from . import __version__
+from .acoustic import AcousticSample
+from .acoustic_diagnostic import AcousticBaseline, diagnose_acoustic
 from .data import VibrationSample
 from .diagnostic import diagnose, threshold_baseline
 
@@ -81,8 +83,22 @@ async def health() -> dict:
 async def info() -> dict:
     return {
         "version": __version__,
-        "method": "envelope-spectrum-v2-family",
-        "supports": ["inner_race", "outer_race", "ball", "normal"],
+        "method": "envelope-spectrum-v2-family",  # legacy alias for the primary modality
+        "supports": ["inner_race", "outer_race", "ball", "normal"],  # legacy: vibration classes
+        "modalities": {
+            "vibration": {
+                "method": "envelope-spectrum-v2-family",
+                "labels": ["normal", "inner_race", "outer_race", "ball"],
+            },
+            "acoustic": {
+                "method": "acoustic-zscore-baseline-v1",
+                "labels": ["normal", "abnormal"],
+            },
+        },
+        # Convenience flat aliases kept for backwards-compat tests
+        "vibration_method": "envelope-spectrum-v2-family",
+        "acoustic_method": "acoustic-zscore-baseline-v1",
+        "acoustic_labels": ["normal", "abnormal"],
         "severity_buckets": ["normal", "watch", "alert", "critical"],
         "input_window_min_samples": 1024,
         "confidence_semantics": (
@@ -126,6 +142,77 @@ async def baseline_endpoint(payload: VibrationPayload) -> DiagnoseResponse:
     return DiagnoseResponse(
         diagnosis=d.to_dict(),
         latency_ms=round((time.perf_counter() - t0) * 1000, 3),
+        server_version=__version__,
+    )
+
+
+class AcousticPayload(BaseModel):
+    sample_id: str = Field(..., min_length=1, max_length=128)
+    signal: list[float] = Field(..., min_length=4 * 16_000)  # >=4s @ 16 kHz
+    sample_rate_hz: int = Field(..., gt=0, le=192_000)
+    machine_id: str = Field(default="id_unknown", min_length=1, max_length=64)
+    label: Literal["normal", "abnormal"] = "normal"
+
+    @field_validator("signal")
+    @classmethod
+    def _finite(cls, v: list[float]) -> list[float]:
+        arr = np.asarray(v, dtype=np.float32)
+        if not np.all(np.isfinite(arr)):
+            raise ValueError("signal contains non-finite values")
+        return v
+
+    def to_sample(self) -> AcousticSample:
+        return AcousticSample(
+            sample_id=self.sample_id,
+            label=self.label,
+            signal=np.asarray(self.signal, dtype=np.float32),
+            sample_rate_hz=self.sample_rate_hz,
+            machine_id=self.machine_id,
+            source="synthetic",  # we don't trust client's source claim
+        )
+
+
+class AcousticBaselineConfig(BaseModel):
+    """Server-side acoustic baseline — fit at startup from a synthetic pool.
+
+    Production deployments would load this from a persisted `AcousticBaseline`
+    JSON file fit on real MIMII fan / customer-supplied normal recordings.
+    """
+    n_train: int = 12
+    snr_db: float = 12.0
+
+
+_acoustic_baseline_cache: AcousticBaseline | None = None
+
+
+def _get_acoustic_baseline() -> AcousticBaseline:
+    """Lazy-init: synthetic normal baseline on first call. The MCP server,
+    eval scripts, and tests can all supply their own baseline JSON via
+    `pdm_agent.acoustic_diagnostic.AcousticBaseline.load()`."""
+    global _acoustic_baseline_cache
+    if _acoustic_baseline_cache is None:
+        from .acoustic import generate_synthetic_acoustic
+        from .acoustic_diagnostic import fit_baseline
+        pool = [
+            generate_synthetic_acoustic("normal", seed=2026_05_28 + i, snr_db=12.0)
+            for i in range(12)
+        ]
+        _acoustic_baseline_cache = fit_baseline(pool)
+    return _acoustic_baseline_cache
+
+
+@app.post("/v1/diagnose_acoustic", response_model=DiagnoseResponse)
+async def diagnose_acoustic_endpoint(payload: AcousticPayload) -> DiagnoseResponse:
+    t0 = time.perf_counter()
+    try:
+        sample = payload.to_sample()
+        d = diagnose_acoustic(sample, _get_acoustic_baseline())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    latency_ms = (time.perf_counter() - t0) * 1000
+    return DiagnoseResponse(
+        diagnosis=d.to_dict(),
+        latency_ms=round(latency_ms, 3),
         server_version=__version__,
     )
 

@@ -223,9 +223,15 @@ def test_registered_tools_match_documented_set() -> None:
     tools = asyncio.run(mcp_server.mcp.list_tools())
     names = {t.name for t in tools}
     expected = {
+        # Vibration modality
         "diagnose_vibration",
         "diagnose_synthetic",
+        # Acoustic modality (Roadmap §2)
+        "diagnose_acoustic_signal",
+        "diagnose_acoustic_synthetic",
+        # OPC UA passthrough
         "poll_opc_asset",
+        # Work order surface
         "list_work_orders",
         "propose_decision_for_work_order",
         "list_agent_recommendations",
@@ -235,6 +241,31 @@ def test_registered_tools_match_documented_set() -> None:
     # And confirm none of the legacy approve/reject names slipped back in
     for legacy in ("approve_work_order", "reject_work_order"):
         assert legacy not in names, f"legacy write tool {legacy} re-appeared"
+
+
+def test_acoustic_mcp_tools_round_trip() -> None:
+    """The MCP acoustic tools should match the sidecar's behaviour on synthetic input."""
+    from pdm_agent.acoustic import generate_synthetic_acoustic
+    s = generate_synthetic_acoustic("abnormal", seed=1234, snr_db=12.0)
+    result = mcp_server.diagnose_acoustic_signal(
+        signal=s.signal.astype(float).tolist(),
+        sample_rate_hz=s.sample_rate_hz,
+        machine_id=s.machine_id,
+        sample_id="mcp-acoustic-test",
+    )
+    assert result["predicted_label"] == "abnormal"
+    assert result["anomaly_score_is_calibrated"] is False
+
+    synth = mcp_server.diagnose_acoustic_synthetic(label="normal", snr_db=12.0, seed=42)
+    assert synth["matched"] is True
+    assert synth["diagnosis"]["predicted_label"] == "normal"
+
+
+def test_acoustic_mcp_rejects_short_signal() -> None:
+    result = mcp_server.diagnose_acoustic_signal(
+        signal=[0.0] * 100, sample_rate_hz=16_000, machine_id="x", sample_id="short",
+    )
+    assert "error" in result
 
 
 def test_registered_resources_match_documented_set() -> None:

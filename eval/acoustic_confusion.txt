@@ -1,0 +1,13 @@
+# z-score baseline — accuracy 1.000, F1 1.0
+
+actual \ pred   normal      abnormal
+------------------------------------
+normal              30          0
+abnormal             0         30
+
+# RMS threshold baseline — accuracy 0.500, F1 0.6667
+
+actual \ pred   normal      abnormal
+------------------------------------
+normal               0         30
+abnormal             0         30

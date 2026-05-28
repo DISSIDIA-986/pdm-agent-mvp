@@ -89,3 +89,42 @@ def test_baseline_endpoint() -> None:
         r.raise_for_status()
         d = r.json()["diagnosis"]
         assert d["method"] == "rms-threshold-baseline"
+
+
+def _acoustic_payload(label: str = "abnormal", seed: int = 1) -> dict:
+    from pdm_agent.acoustic import generate_synthetic_acoustic
+    s = generate_synthetic_acoustic(label, seed=seed, snr_db=12.0)  # type: ignore[arg-type]
+    return {
+        "sample_id": s.sample_id,
+        "signal": s.signal.astype(float).tolist(),
+        "sample_rate_hz": s.sample_rate_hz,
+        "machine_id": s.machine_id,
+        "label": "normal",  # we don't trust client claim
+    }
+
+
+def test_diagnose_acoustic_endpoint_flags_abnormal() -> None:
+    with TestClient(app) as c:
+        r = c.post("/v1/diagnose_acoustic", json=_acoustic_payload("abnormal", seed=7))
+        r.raise_for_status()
+        body = r.json()
+        assert body["diagnosis"]["predicted_label"] == "abnormal"
+        assert body["diagnosis"]["severity"] in ("alert", "critical")
+
+
+def test_diagnose_acoustic_endpoint_passes_normal() -> None:
+    with TestClient(app) as c:
+        r = c.post("/v1/diagnose_acoustic", json=_acoustic_payload("normal", seed=8))
+        r.raise_for_status()
+        body = r.json()
+        assert body["diagnosis"]["predicted_label"] == "normal"
+        assert body["diagnosis"]["severity"] == "normal"
+
+
+def test_info_reports_both_modalities() -> None:
+    with TestClient(app) as c:
+        r = c.get("/v1/info")
+        body = r.json()
+        assert body["vibration_method"] == "envelope-spectrum-v2-family"
+        assert body["acoustic_method"] == "acoustic-zscore-baseline-v1"
+        assert body["acoustic_labels"] == ["normal", "abnormal"]
